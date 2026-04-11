@@ -552,7 +552,7 @@ No application secrets (`DATABASE_URL`) stored here.
 **Conventions:**
 - Reusable workflows are prefixed with `_` to distinguish them from trigger workflows.
 - `dorny/paths-filter@v3` in `pr.yml` and `deploy.yml` detects whether `app/` or `.github/` changed — workflows skip if unrelated files changed (e.g., pure docs changes don't trigger CI).
-- The composite action `setup-node` deduplicates the checkout + npm install steps shared by `_lint.yml` and `_test.yml`.
+- The composite action `setup-node` is available for **non-reusable** contexts only. Reusable workflows (`workflow_call`) cannot use local composite actions because the runner resolves the action path before `actions/checkout` runs — the workspace is empty at that point. `_lint.yml` and `_test.yml` therefore inline the setup steps directly.
 
 ---
 

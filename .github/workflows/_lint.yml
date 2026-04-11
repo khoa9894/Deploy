@@ -8,7 +8,17 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/setup-node
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'app/package.json'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
 
       - name: Run linter
         working-directory: app
