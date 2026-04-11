@@ -6,11 +6,13 @@ on:
       image-name:
         required: true
         type: string
+      acr-login-server:
+        required: true
+        type: string
+      acr-registry-name:
+        required: true
+        type: string
     secrets:
-      ACR_LOGIN_SERVER:
-        required: true
-      ACR_REGISTRY_NAME:
-        required: true
       AZURE_CLIENT_ID:
         required: true
       AZURE_TENANT_ID:
@@ -29,6 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug inputs
+        run: |
+          echo "image-name:        ${{ inputs.image-name }}"
+          echo "acr-login-server:  ${{ inputs.acr-login-server }}"
+          echo "acr-registry-name: ${{ inputs.acr-registry-name }}"
+
       - name: Authenticate to Azure (OIDC)
         uses: azure/login@v2
         with:
@@ -37,7 +45,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Log in to ACR
-        run: az acr login --name "${{ secrets.ACR_REGISTRY_NAME }}"
+        run: az acr login --name "${{ inputs.acr-registry-name }}"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -48,13 +56,14 @@ jobs:
           file: ./app/Dockerfile
           push: true
           tags: |
-            ${{ secrets.ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:sha-${{ github.sha }}
-            ${{ secrets.ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:latest
+            ${{ inputs.acr-login-server }}/${{ inputs.image-name }}:sha-${{ github.sha }}
+            ${{ inputs.acr-login-server }}/${{ inputs.image-name }}:latest
 
       - name: Purge old images (keep 9 sha-tags + latest = 10 total)
         run: |
+          echo "Running purge on registry: ${{ inputs.acr-registry-name }}"
           az acr run \
-            --registry "${{ secrets.ACR_REGISTRY_NAME }}" \
+            --registry "${{ inputs.acr-registry-name }}" \
             --cmd "acr purge \
               --filter '${{ inputs.image-name }}:^sha-' \
               --ago 0d \
