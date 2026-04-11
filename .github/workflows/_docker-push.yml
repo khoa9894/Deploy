@@ -59,14 +59,3 @@ jobs:
             ${{ inputs.acr-login-server }}/${{ inputs.image-name }}:sha-${{ github.sha }}
             ${{ inputs.acr-login-server }}/${{ inputs.image-name }}:latest
 
-      - name: Purge old images (keep 9 sha-tags + latest = 10 total)
-        run: |
-          echo "Running purge on registry: ${{ inputs.acr-registry-name }}"
-          az acr run \
-            --registry "${{ inputs.acr-registry-name }}" \
-            --cmd "acr purge \
-              --filter '${{ inputs.image-name }}:^sha-' \
-              --ago 0d \
-              --keep 9 \
-              --untagged" \
-            /dev/null
