@@ -312,17 +312,17 @@ Replace placeholders: `<RG>`, `<ACR>`, `<KV>`, `<ENV>`, `<APP>`, `<GH_ORG>`, `<G
 **2.1 — Create resource group**
 
 ```bash
-az group create --name <RG> --location southeastasia
+az group create -l southeastasia -n rg-anmind-production 
 ```
 
 **2.2 — Create Azure Container Registry**
 
 ```bash
 az acr create \
-  --resource-group <RG> \
-  --name <ACR> \
+  --resource-group rg-anmind-production \
+  --name acranmindproduction \
   --sku Basic \
-  --location southeastasia \
+  --location eastasia \
   --admin-enabled false
 ```
 
@@ -334,7 +334,7 @@ Save the login server (`<ACR>.azurecr.io`) — this is the `ACR_LOGIN_SERVER` se
 az keyvault create \
   --resource-group <RG> \
   --name <KV> \
-  --location southeastasia \
+  --location eastasia \
   --enable-rbac-authorization true
 ```
 
