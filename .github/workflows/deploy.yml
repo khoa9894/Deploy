@@ -45,8 +45,8 @@ jobs:
     uses: ./.github/workflows/_deploy.yml
     with:
       image-name: app
+      acr-login-server: ${{ vars.ACR_LOGIN_SERVER }}
     secrets:
-      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
