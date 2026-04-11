@@ -110,20 +110,20 @@ Three parallel jobs, each independent:
 
 ```
 [lint job]
-  1. actions/checkout@v4
+  1. actions/@checkout@v6
   2. actions/setup-node@v4  (version from app/package.json engines field)
      cache: npm, cache-dependency-path: app/package-lock.json
   3. npm ci                  (working-directory: app)
   4. npm run lint            (working-directory: app)
 
 [test job]
-  1. actions/checkout@v4
+  1. actions/@checkout@v6
   2. actions/setup-node@v4
   3. npm ci                  (working-directory: app)
   4. npm test                (working-directory: app)
 
 [docker-build job]
-  1. actions/checkout@v4
+  1. actions/@checkout@v6
   2. docker/setup-buildx-action@v3
   3. docker/build-push-action@v6
        context: ./app
@@ -134,7 +134,7 @@ Three parallel jobs, each independent:
 ### 4.2 `build-and-deploy` Job (on: push, branch: main)
 
 ```
-  1. actions/checkout@v4
+  1. actions/@checkout@v6
   2. azure/login@v2          (OIDC — client-id, tenant-id, subscription-id from secrets)
   3. az acr login --name acranmindproduction
   4. docker/setup-buildx-action@v3
@@ -565,7 +565,7 @@ description: Checkout code and install Node.js dependencies
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
+    - uses: actions/@checkout@v6
 
     - uses: actions/setup-node@v4
       with:
@@ -638,7 +638,7 @@ jobs:
     name: Docker Build (validate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/@checkout@v6
 
       - uses: docker/setup-buildx-action@v3
 
@@ -683,7 +683,7 @@ jobs:
     name: Build & Push Image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/@checkout@v6
 
       - name: Authenticate to Azure (OIDC)
         uses: azure/login@v2
@@ -805,7 +805,7 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/@checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -855,7 +855,7 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/@checkout@v6
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -956,7 +956,7 @@ Confirm GitHub secrets contain only the four deployment-config values. Confirm `
 - [ ] Deploy pipeline: docker-push runs first, deploy runs after (`needs: docker-push`)
 - [ ] ACR purge keeps max 9 sha-tags + `latest`
 - [ ] Smoke test `GET /health` passes post-deploy
-- [ ] Action versions: `checkout@v4`, `setup-node@v4`, `azure/login@v2`, `docker/build-push-action@v6`, `setup-buildx-action@v3`, `dorny/paths-filter@v3`
+- [ ] Action versions: `@checkout@v6`, `setup-node@v4`, `azure/login@v2`, `docker/build-push-action@v6`, `setup-buildx-action@v3`, `dorny/paths-filter@v3`
 
 ---
 

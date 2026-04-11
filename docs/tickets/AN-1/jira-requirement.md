@@ -88,7 +88,7 @@ To address this, we need to:
 #### Pipeline Jobs
 
 **Job: `validate`** *(on pull_request → any branch)*
-- Checkout code (`actions/checkout@v4`)
+- Checkout code (`actions/@checkout@v6`)
 - Set up Node.js (`actions/setup-node@v4`) — use the version specified in `package.json` `engines` field
 - Install dependencies
 - Run linter
@@ -96,7 +96,7 @@ To address this, we need to:
 - Build Docker image (build only, **do not push**) — runs in parallel/alongside the validation steps above
 
 **Job: `build-and-deploy`** *(on push → main)*
-- Checkout code (`actions/checkout@v4`)
+- Checkout code (`actions/@checkout@v6`)
 - Authenticate to Azure via OIDC (`azure/login@v2`)
 - Log in to ACR (`azure/docker-login@v1` or `docker/login-action@v3` with ACR credentials via OIDC)
 - Build Docker image and tag with `sha-${{ github.sha }}` and `latest`
