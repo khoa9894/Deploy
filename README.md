@@ -24,7 +24,6 @@ A production-ready backend service for managing tasks (to-do list), built with *
 * Validation: class-validator
 * API Docs: Swagger (OpenAPI)
 * CI/CD: GitHub Actions
-* Deployment: Railway / Render
 
 ---
 
