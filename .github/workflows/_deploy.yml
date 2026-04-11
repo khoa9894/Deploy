@@ -6,9 +6,10 @@ on:
       image-name:
         required: true
         type: string
-    secrets:
-      ACR_LOGIN_SERVER:
+      acr-login-server:
         required: true
+        type: string
+    secrets:
       AZURE_CLIENT_ID:
         required: true
       AZURE_TENANT_ID:
@@ -37,7 +38,7 @@ jobs:
           az containerapp update \
             --resource-group rg-anmind-production \
             --name containerapp-anmind \
-            --image ${{ secrets.ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:sha-${{ github.sha }}
+            --image ${{ inputs.acr-login-server }}/${{ inputs.image-name }}:sha-${{ github.sha }}
 
       - name: Get FQDN
         id: fqdn
