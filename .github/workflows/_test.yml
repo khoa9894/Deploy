@@ -1,0 +1,15 @@
+name: Unit Tests
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/setup-node
+
+      - name: Run unit tests
+        working-directory: app
+        run: npm test

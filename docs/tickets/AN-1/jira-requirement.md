@@ -44,8 +44,14 @@ To address this, we need to:
   - Grant the Container App's managed identity the **`Key Vault Secrets User`** role on the Key Vault
   - Configure ingress on port **3000** (external, HTTPS)
   - Set the following environment variables on the Container App:
-    - `PORT=3000`
-    - `DATABASE_URL` — referenced from Key Vault via secret reference (not a plaintext value)
+    - `PORT=3000` — plaintext
+    - `REDIS_USERNAME=default` — plaintext
+    - `REDIS_PORT=17123` — plaintext
+    - `JWT_EXPIRES_IN=1h` — plaintext
+    - `DATABASE_URL` — Key Vault secret reference (`DATABASE-URL`)
+    - `REDIS_HOST` — Key Vault secret reference (`REDIS-HOST`)
+    - `REDIS_PASSWORD` — Key Vault secret reference (`REDIS-PASSWORD`)
+    - `JWT_SECRET` — Key Vault secret reference (`JWT-SECRET`)
   - Configure scaling rules as appropriate (scale-to-zero enabled)
 - [ ] Create an **Azure AD App Registration** with Workload Identity Federation (OIDC)
   - Scope federated credentials to **pull requests targeting any branch** and **push to `main`** (i.e., subject: `repo:<org>/<repo>:pull_request` and `repo:<org>/<repo>:ref:refs/heads/main`)

@@ -10,7 +10,7 @@ The automated system consists of three layers:
 
 - **Source layer**: GitHub repository hosts the NestJS application under `app/`. The pipeline is defined in `.github/workflows/`.
 - **Pipeline layer**: GitHub Actions executes two jobs — `validate` (on all pull requests) and `build-and-deploy` (on push to `main`). Authentication to Azure is entirely secretless via OIDC Workload Identity Federation.
-- **Runtime layer**: Azure hosts all infrastructure in Southeast Asia. ACR stores Docker images. Azure Container Apps runs the container with scale-to-zero. Azure Key Vault holds `DATABASE_URL` at runtime — it never passes through the pipeline.
+- **Runtime layer**: Azure hosts all infrastructure in Southeast Asia. ACR stores Docker images. Azure Container Apps runs the container with scale-to-zero. Azure Key Vault holds all sensitive runtime secrets (`DATABASE_URL`, `REDIS_HOST`, `REDIS_PASSWORD`, `JWT_SECRET`) — they never pass through the pipeline.
 
 ---
 
@@ -64,8 +64,14 @@ The automated system consists of three layers:
 │  ┌──────────────────────┐     │  Scale: 0–N (scale-to-zero)     │        │
 │  │  Azure Key Vault     │◄────│  Identity: system-assigned MI   │        │
 │  │                      │     │  Env vars:                      │        │
-│  │  SECRET: DATABASE-URL│     │    PORT=3000                    │        │
-│  │  Access: RBAC        │     │    DATABASE_URL → KV secret ref │        │
+│  │  SECRETS:            │     │    PORT=3000                    │        │
+│  │   DATABASE-URL       │     │    REDIS_USERNAME=default       │        │
+│  │   REDIS-HOST         │     │    REDIS_PORT=17123             │        │
+│  │   REDIS-PASSWORD     │     │    JWT_EXPIRES_IN=1h            │        │
+│  │   JWT-SECRET         │     │    DATABASE_URL → KV secret ref │        │
+│  │  Access: RBAC        │     │    REDIS_HOST   → KV secret ref │        │
+│  │                      │     │    REDIS_PASSWORD→ KV secret ref│        │
+│  │                      │     │    JWT_SECRET   → KV secret ref │        │
 │  │  Role: KV Secrets    │     └─────────────────────────────────┘        │
 │  │    User → App MI     │                                                │
 │  └──────────────────────┘                                                │
@@ -89,7 +95,7 @@ The automated system consists of three layers:
 | **GitHub Secrets** | Non-sensitive deployment config only: client/tenant/subscription IDs and ACR address |
 | **Azure AD App Registration** | Issues short-lived OIDC tokens to the runner; federated credentials scoped to PR events and `main` push |
 | **Azure Container Registry** | Stores Docker images; max 10 tags (9 `sha-*` + `latest`) enforced by pipeline purge |
-| **Azure Key Vault** | Stores `DATABASE-URL` at rest; accessed by Container App managed identity at runtime only — never by the pipeline |
+| **Azure Key Vault** | Stores `DATABASE-URL`, `REDIS-HOST`, `REDIS-PASSWORD`, `JWT-SECRET` at rest; accessed by Container App managed identity at runtime only — never by the pipeline |
 | **System-assigned Managed Identity** | Attached to the Container App; holds `Key Vault Secrets User` role (secret fetch) and `AcrPull` role (image pull) |
 | **Azure Container Apps** | Runs the NestJS container; pulls secrets from Key Vault via secret reference; scale-to-zero |
 | **PostgreSQL Flexible Server** | Pre-existing DB in a separate resource group; connection string stored manually in Key Vault before first deploy |
@@ -130,7 +136,7 @@ Three parallel jobs, each independent:
 ```
   1. actions/checkout@v4
   2. azure/login@v2          (OIDC — client-id, tenant-id, subscription-id from secrets)
-  3. az acr login --name <ACR>
+  3. az acr login --name acranmindproduction
   4. docker/setup-buildx-action@v3
   5. docker/build-push-action@v6
        context: ./app
@@ -152,25 +158,32 @@ Three parallel jobs, each independent:
 ### 5.1 Secret Flow (Key Vault → Container App)
 
 ```
-PostgreSQL Flexible Server
-  │ (manual, one-time) admin retrieves connection string
+(manual, one-time) store all sensitive values in Key Vault:
+  az keyvault secret set --name DATABASE-URL  --value "postgresql://..."
+  az keyvault secret set --name REDIS-HOST     --value "<redis-host>"
+  az keyvault secret set --name REDIS-PASSWORD --value "<redis-password>"
+  az keyvault secret set --name JWT-SECRET     --value "<jwt-secret>"
   ▼
-az keyvault secret set --name DATABASE-URL --value "postgresql://..."
-  ▼
-Azure Key Vault (runtime only — pipeline never reads this)
+Azure Key Vault (runtime only — pipeline never reads these)
   │ Container App managed identity authenticates via RBAC
   │ Role: Key Vault Secrets User
   ▼
-Container App secret reference:
-  secretRef: database-url
-  keyVaultUrl: https://<KV>.vault.azure.net/secrets/DATABASE-URL
+Container App secret references:
+  database-url   → https://<KV>.vault.azure.net/secrets/DATABASE-URL
+  redis-host     → https://<KV>.vault.azure.net/secrets/REDIS-HOST
+  redis-password → https://<KV>.vault.azure.net/secrets/REDIS-PASSWORD
+  jwt-secret     → https://<KV>.vault.azure.net/secrets/JWT-SECRET
   ▼
-Env var DATABASE_URL injected into the container process
+Env vars injected into the container process:
+  DATABASE_URL   = secretref:database-url
+  REDIS_HOST     = secretref:redis-host
+  REDIS_PASSWORD = secretref:redis-password
+  JWT_SECRET     = secretref:jwt-secret
   ▼
-NestJS reads process.env.DATABASE_URL
+NestJS reads process.env.*
 ```
 
-The `az containerapp update` step in the pipeline passes only `--image`. It never touches `--set-env-vars` or `--secrets`, so the Key Vault reference is never overwritten.
+The `az containerapp update` step in the pipeline passes only `--image`. It never touches `--set-env-vars` or `--secrets`, so Key Vault references are never overwritten.
 
 ### 5.2 Image Flow (GitHub → ACR → Container App)
 
@@ -178,12 +191,12 @@ The `az containerapp update` step in the pipeline passes only `--image`. It neve
 push to main
   ▼
 docker/build-push-action@v6 (context: ./app, multi-stage Dockerfile)
-  ├── pushes: <ACR>.azurecr.io/app:sha-<github.sha>
-  └── pushes: <ACR>.azurecr.io/app:latest
+  ├── pushes: acranmindproduction.azurecr.io/app:sha-<github.sha>
+  └── pushes: acranmindproduction.azurecr.io/app:latest
   ▼
 az acr run purge (filter: ^sha-, keep 9) → max 10 tags total
   ▼
-az containerapp update --image <ACR>.azurecr.io/app:sha-<github.sha>
+az containerapp update --image acranmindproduction.azurecr.io/app:sha-<github.sha>
   ▼
 Container App pulls image from ACR via system-assigned MI (AcrPull role)
 ```
@@ -307,12 +320,12 @@ Key points:
 
 ### Phase 2 — Azure Infrastructure Provisioning
 
-Replace placeholders: `<RG>`, `<ACR>`, `<KV>`, `<ENV>`, `<APP>`, `<GH_ORG>`, `<GH_REPO>`.
+Replace placeholders: `rg-anmind-production`, `acranmindproduction`, `<KV>`, `<ENV>`, `containerapp-anmind`, `<GH_ORG>`, `<GH_REPO>`.
 
 **2.1 — Create resource group**
 
 ```bash
-az group create -l southeastasia -n rg-anmind-production 
+az group create -l eastasia -n rg-anmind-production 
 ```
 
 **2.2 — Create Azure Container Registry**
@@ -326,63 +339,84 @@ az acr create \
   --admin-enabled false
 ```
 
-Save the login server (`<ACR>.azurecr.io`) — this is the `ACR_LOGIN_SERVER` secret value.
+Save the login server (`acranmindproduction.azurecr.io`) — this is the `ACR_LOGIN_SERVER` secret value.
 
 **2.3 — Create Azure Key Vault (RBAC access model)**
 
 ```bash
 az keyvault create \
-  --resource-group <RG> \
+  --resource-group rg-anmind-production \
   --name <KV> \
   --location eastasia \
   --enable-rbac-authorization true
 ```
 
-**2.4 — Store `DATABASE-URL` in Key Vault** *(one-time manual step)*
-
-Retrieve the PostgreSQL Flexible Server connection string from its resource group, then:
+**2.4 — Store secrets in Key Vault** *(one-time manual step)*
 
 ```bash
+# PostgreSQL connection string — retrieve from its resource group first
 az keyvault secret set \
-  --vault-name <KV> \
+  --vault-name kv-anmind-production \
   --name DATABASE-URL \
   --value "postgresql://<user>:<password>@<host>:5432/<dbname>?sslmode=require"
+
+# Redis host
+az keyvault secret set \
+  --vault-name kv-anmind-production \
+  --name REDIS-HOST \
+  --value "<redis-host>"
+
+# Redis password
+az keyvault secret set \
+  --vault-name kv-anmind-production \
+  --name REDIS-PASSWORD \
+  --value "<redis-password>"
+
+# JWT signing secret
+az keyvault secret set \
+  --vault-name kv-anmind-production \
+  --name JWT-SECRET \
+  --value "<jwt-secret>"
 ```
 
 **2.5 — Create Container Apps environment**
 
 ```bash
 az containerapp env create \
-  --resource-group <RG> \
-  --name <ENV> \
-  --location southeastasia
+  --resource-group rg-anmind-production \
+  --name containerapp-env-anmind \
+  --location eastasia
 ```
 
 **2.6 — Create Container App with placeholder image and system-assigned MI**
 
 ```bash
 az containerapp create \
-  --resource-group <RG> \
-  --name <APP> \
-  --environment <ENV> \
+  --resource-group rg-anmind-production \
+  --name containerapp-anmind \
+  --environment containerapp-env-anmind \
   --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
   --target-port 3000 \
   --ingress external \
   --min-replicas 0 \
   --max-replicas 3 \
   --system-assigned \
-  --env-vars PORT=3000
+  --env-vars \
+    PORT=3000 \
+    REDIS_USERNAME=default \
+    REDIS_PORT=17123 \
+    JWT_EXPIRES_IN=1h
 ```
 
 **2.7 — Grant Container App MI `Key Vault Secrets User` on the vault**
 
 ```bash
 PRINCIPAL_ID=$(az containerapp show \
-  --resource-group <RG> --name <APP> \
+  --resource-group rg-anmind-production --name containerapp-anmind \
   --query identity.principalId --output tsv)
 
 KV_ID=$(az keyvault show \
-  --resource-group <RG> --name <KV> \
+  --resource-group rg-anmind-production --name kv-anmind-production \
   --query id --output tsv)
 
 az role assignment create \
@@ -395,19 +429,33 @@ az role assignment create \
 **2.8 — Wire `DATABASE_URL` via Key Vault secret reference**
 
 ```bash
+KV="https://kv-anmind-production.vault.azure.net/secrets"
+
 az containerapp secret set \
-  --resource-group <RG> --name <APP> \
-  --secrets "database-url=keyvaultref:https://<KV>.vault.azure.net/secrets/DATABASE-URL,identityref:system"
+  --resource-group rg-anmind-production --name containerapp-anmind \
+  --secrets \
+    "database-url=keyvaultref:${KV}/DATABASE-URL,identityref:system" \
+    "redis-host=keyvaultref:${KV}/REDIS-HOST,identityref:system" \
+    "redis-password=keyvaultref:${KV}/REDIS-PASSWORD,identityref:system" \
+    "jwt-secret=keyvaultref:${KV}/JWT-SECRET,identityref:system"
 
 az containerapp update \
-  --resource-group <RG> --name <APP> \
-  --set-env-vars "DATABASE_URL=secretref:database-url"
+  --resource-group rg-anmind-production --name containerapp-anmind \
+  --set-env-vars \
+    "DATABASE_URL=secretref:database-url" \
+    "REDIS_HOST=secretref:redis-host" \
+    "REDIS_PASSWORD=secretref:redis-password" \
+    "JWT_SECRET=secretref:jwt-secret"
+
+# Note: PORT, REDIS_USERNAME, REDIS_PORT, JWT_EXPIRES_IN are already set
+# as plaintext in Step 2.6. Only the four sensitive values above need
+# Key Vault wiring after the MI role is granted.
 ```
 
 **2.9 — Grant Container App MI `AcrPull` on ACR** *(required for image pull at runtime)*
 
 ```bash
-ACR_ID=$(az acr show --resource-group <RG> --name <ACR> --query id --output tsv)
+ACR_ID=$(az acr show --resource-group rg-anmind-production --name acranmindproduction --query id --output tsv)
 
 az role assignment create \
   --assignee-object-id $PRINCIPAL_ID \
@@ -420,8 +468,8 @@ az role assignment create \
 
 ```bash
 az containerapp registry set \
-  --resource-group <RG> --name <APP> \
-  --server <ACR>.azurecr.io \
+  --resource-group rg-anmind-production --name containerapp-anmind \
+  --server acranmindproduction.azurecr.io \
   --identity system
 ```
 
@@ -438,7 +486,7 @@ SP_ID=$(az ad sp create --id $APP_ID --query id --output tsv)
 az ad app federated-credential create --id $APP_ID --parameters '{
   "name": "github-push-main",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<GH_ORG>/<GH_REPO>:ref:refs/heads/main",
+  "subject": "repo:L01-B-n-chang-linh-ng-lam/webservice-cloud-template:ref:refs/heads/main",
   "audiences": ["api://AzureADTokenExchange"]
 }'
 
@@ -446,7 +494,7 @@ az ad app federated-credential create --id $APP_ID --parameters '{
 az ad app federated-credential create --id $APP_ID --parameters '{
   "name": "github-pull-request",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:<GH_ORG>/<GH_REPO>:pull_request",
+  "subject": "repo:L01-B-n-chang-linh-ng-lam/webservice-cloud-template:pull_request",
   "audiences": ["api://AzureADTokenExchange"]
 }'
 ```
@@ -460,7 +508,7 @@ az role assignment create \
 
 # Contributor on Container App (pipeline deploys)
 APP_RESOURCE_ID=$(az containerapp show \
-  --resource-group <RG> --name <APP> \
+  --resource-group rg-anmind-production --name containerapp-anmind \
   --query id --output tsv)
 
 az role assignment create \
@@ -476,7 +524,7 @@ In GitHub: Settings > Secrets and variables > Actions > New repository secret:
 | `AZURE_CLIENT_ID` | `$APP_ID` (from Step 2.11) |
 | `AZURE_TENANT_ID` | Azure tenant ID |
 | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
-| `ACR_LOGIN_SERVER` | `<ACR>.azurecr.io` |
+| `ACR_LOGIN_SERVER` | `acranmindproduction.azurecr.io` |
 
 No application secrets (`DATABASE_URL`) stored here.
 
@@ -484,68 +532,116 @@ No application secrets (`DATABASE_URL`) stored here.
 
 ### Phase 3 — GitHub Actions Workflow
 
-**3.1 — Create `.github/workflows/ci.yml`**
+#### File Layout
+
+```
+.github/
+  actions/
+    setup-node/
+      action.yml          # Composite: checkout + node install (shared by lint, test)
+  workflows/
+    pr.yml                # Trigger: pull_request → calls reusable workflows
+    deploy.yml            # Trigger: push to main → calls reusable workflows
+    _lint.yml             # Reusable: runs eslint
+    _test.yml             # Reusable: runs jest
+    _docker-build.yml     # Reusable: docker build, no push (PR validation)
+    _docker-push.yml      # Reusable: docker build + push to ACR + purge
+    _deploy.yml           # Reusable: az containerapp update + smoke test
+```
+
+**Conventions:**
+- Reusable workflows are prefixed with `_` to distinguish them from trigger workflows.
+- `dorny/paths-filter@v3` in `pr.yml` and `deploy.yml` detects whether `app/` or `.github/` changed — workflows skip if unrelated files changed (e.g., pure docs changes don't trigger CI).
+- The composite action `setup-node` deduplicates the checkout + npm install steps shared by `_lint.yml` and `_test.yml`.
+
+---
+
+**3.1 — `.github/actions/setup-node/action.yml`** *(composite)*
 
 ```yaml
-name: CI/CD Pipeline
+name: Setup Node
+description: Checkout code and install Node.js dependencies
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: 'app/package.json'
+        cache: npm
+        cache-dependency-path: app/package-lock.json
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: app
+      run: npm ci
+```
+
+---
+
+**3.2 — `.github/workflows/_lint.yml`** *(reusable)*
+
+```yaml
+name: Lint
 
 on:
-  pull_request:
-    branches: ['**']
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: read
-  id-token: write  # Required for OIDC
+  workflow_call:
 
 jobs:
-  # ── Validate: runs on all pull requests (3 parallel jobs) ────────────────
-
   lint:
     name: Lint
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: 'app/package.json'
-          cache: 'npm'
-          cache-dependency-path: app/package-lock.json
-      - name: Install dependencies
-        working-directory: app
-        run: npm ci
+      - uses: ./.github/actions/setup-node
+
       - name: Run linter
         working-directory: app
         run: npm run lint
+```
 
+---
+
+**3.3 — `.github/workflows/_test.yml`** *(reusable)*
+
+```yaml
+name: Unit Tests
+
+on:
+  workflow_call:
+
+jobs:
   test:
     name: Unit Tests
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: 'app/package.json'
-          cache: 'npm'
-          cache-dependency-path: app/package-lock.json
-      - name: Install dependencies
-        working-directory: app
-        run: npm ci
+      - uses: ./.github/actions/setup-node
+
       - name: Run unit tests
         working-directory: app
         run: npm test
+```
 
+---
+
+**3.4 — `.github/workflows/_docker-build.yml`** *(reusable — PR validation only, no push)*
+
+```yaml
+name: Docker Build
+
+on:
+  workflow_call:
+
+jobs:
   docker-build:
-    name: Docker Build (validate only)
-    if: github.event_name == 'pull_request'
+    name: Docker Build (validate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image (no push)
         uses: docker/build-push-action@v6
         with:
@@ -553,16 +649,41 @@ jobs:
           file: ./app/Dockerfile
           push: false
           tags: app:pr-${{ github.sha }}
+```
 
-  # ── Build and Deploy: runs on push to main only ───────────────────────────
+---
 
-  build-and-deploy:
-    name: Build and Deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+**3.5 — `.github/workflows/_docker-push.yml`** *(reusable — build, push, purge)*
+
+```yaml
+name: Docker Push
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+    secrets:
+      ACR_LOGIN_SERVER:
+        required: true
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  docker-push:
+    name: Build & Push Image
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Authenticate to Azure (OIDC)
         uses: azure/login@v2
@@ -571,46 +692,85 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Log in to Azure Container Registry
+      - name: Log in to ACR
         run: az acr login --name ${{ secrets.ACR_LOGIN_SERVER }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: ./app
           file: ./app/Dockerfile
           push: true
           tags: |
-            ${{ secrets.ACR_LOGIN_SERVER }}/app:sha-${{ github.sha }}
-            ${{ secrets.ACR_LOGIN_SERVER }}/app:latest
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:sha-${{ github.sha }}
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:latest
 
-      - name: Purge old ACR images (keep max 9 sha-tags + latest = 10 total)
+      - name: Purge old images (keep 9 sha-tags + latest = 10 total)
         run: |
           az acr run \
             --registry ${{ secrets.ACR_LOGIN_SERVER }} \
             --cmd "acr purge \
-              --filter 'app:^sha-' \
+              --filter '${{ inputs.image-name }}:^sha-' \
               --ago 0d \
               --keep 9 \
               --untagged" \
             /dev/null
+```
 
-      - name: Deploy to Azure Container Apps
+---
+
+**3.6 — `.github/workflows/_deploy.yml`** *(reusable — update Container App + smoke test)*
+
+```yaml
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+    secrets:
+      ACR_LOGIN_SERVER:
+        required: true
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Container Apps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy image
         run: |
           az containerapp update \
-            --resource-group <RG> \
-            --name <APP> \
-            --image ${{ secrets.ACR_LOGIN_SERVER }}/app:sha-${{ github.sha }}
+            --resource-group rg-anmind-production \
+            --name containerapp-anmind \
+            --image ${{ secrets.ACR_LOGIN_SERVER }}/${{ inputs.image-name }}:sha-${{ github.sha }}
 
-      - name: Get Container App FQDN
-        id: get-fqdn
+      - name: Get FQDN
+        id: fqdn
         run: |
           FQDN=$(az containerapp show \
-            --resource-group <RG> \
-            --name <APP> \
+            --resource-group rg-anmind-production \
+            --name containerapp-anmind \
             --query properties.configuration.ingress.fqdn \
             --output tsv)
           echo "fqdn=$FQDN" >> $GITHUB_OUTPUT
@@ -621,10 +781,114 @@ jobs:
                --retry 10 \
                --retry-delay 10 \
                --retry-all-errors \
-               https://${{ steps.get-fqdn.outputs.fqdn }}/health
+               https://${{ steps.fqdn.outputs.fqdn }}/health
 ```
 
-Replace `<RG>` and `<APP>` with actual resource group and Container App names before committing.
+---
+
+**3.7 — `.github/workflows/pr.yml`** *(trigger: pull_request)*
+
+```yaml
+name: PR Checks
+
+on:
+  pull_request:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'app/**'
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - 'app/Dockerfile'
+
+  lint:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/_lint.yml
+
+  test:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/_test.yml
+
+  docker-build:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/_docker-build.yml
+```
+
+---
+
+**3.8 — `.github/workflows/deploy.yml`** *(trigger: push to main)*
+
+```yaml
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'app/**'
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - 'app/Dockerfile'
+
+  docker-push:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    uses: ./.github/workflows/_docker-push.yml
+    with:
+      image-name: app
+    secrets:
+      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  deploy:
+    needs: docker-push
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      image-name: app
+    secrets:
+      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+```
 
 ---
 
@@ -679,12 +943,20 @@ Confirm GitHub secrets contain only the four deployment-config values. Confirm `
 - [ ] No application secrets in GitHub
 
 **Pipeline**
-- [ ] `.github/workflows/ci.yml` committed
-- [ ] `validate` runs on PRs (3 parallel jobs, no push)
-- [ ] `build-and-deploy` runs on push to `main` only
+- [ ] `.github/actions/setup-node/action.yml` — composite action for Node setup
+- [ ] `.github/workflows/_lint.yml` — reusable lint workflow
+- [ ] `.github/workflows/_test.yml` — reusable test workflow
+- [ ] `.github/workflows/_docker-build.yml` — reusable docker build (no push)
+- [ ] `.github/workflows/_docker-push.yml` — reusable docker build + push + purge
+- [ ] `.github/workflows/_deploy.yml` — reusable deploy + smoke test
+- [ ] `.github/workflows/pr.yml` — PR trigger with `dorny/paths-filter@v3`
+- [ ] `.github/workflows/deploy.yml` — push to main trigger with `dorny/paths-filter@v3`
+- [ ] Path filter: CI skips when only non-`app/` files change (e.g., docs-only PRs)
+- [ ] PR checks: lint, test, docker-build run in parallel (no push)
+- [ ] Deploy pipeline: docker-push runs first, deploy runs after (`needs: docker-push`)
 - [ ] ACR purge keeps max 9 sha-tags + `latest`
 - [ ] Smoke test `GET /health` passes post-deploy
-- [ ] Action versions: `checkout@v4`, `setup-node@v4`, `azure/login@v2`, `docker/login-action@v3`, `docker/build-push-action@v6`, `setup-buildx-action@v3`
+- [ ] Action versions: `checkout@v4`, `setup-node@v4`, `azure/login@v2`, `docker/build-push-action@v6`, `setup-buildx-action@v3`, `dorny/paths-filter@v3`
 
 ---
 
@@ -697,5 +969,12 @@ To be modified:
 
 To be created:
 - `app/Dockerfile`
-- `.github/workflows/ci.yml`
+- `.github/actions/setup-node/action.yml`
+- `.github/workflows/pr.yml`
+- `.github/workflows/deploy.yml`
+- `.github/workflows/_lint.yml`
+- `.github/workflows/_test.yml`
+- `.github/workflows/_docker-build.yml`
+- `.github/workflows/_docker-push.yml`
+- `.github/workflows/_deploy.yml`
 - `.gitattributes`
