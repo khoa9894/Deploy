@@ -1,8 +1,6 @@
-import { UUID } from 'crypto';
-
 export class UserInfoDto {
-  id!: UUID;
-  username!: string;
-  firstName!: string;
-  lastName!: string;
+  id!: string;
+  name!: string;
+  email!: string;
+  createdAt!: Date;
 }
