@@ -13,8 +13,12 @@ export class CreateTaskDto {
   @MinLength(3)
   description!: string;
 
-  @ApiProperty({ example: '2026-04-20T10:00:00.000Z', type: String, format: 'date-time' })
+  @ApiProperty({
+    example: '2026-04-20T10:00:00.000Z',
+    type: String,
+    format: 'date-time',
+  })
   @Type(() => Date)
   @IsDate()
-  dueDate!: Date;
+  due_date!: Date;
 }

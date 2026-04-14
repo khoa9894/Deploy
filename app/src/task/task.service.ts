@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Task } from '../../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -9,45 +13,49 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 export class TaskService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(userId: string): Promise<RetrieveTaskDto[]> {
+  async findAll(user_id: string): Promise<RetrieveTaskDto[]> {
     const tasks = await this.prisma.task.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
+      where: { user_id },
+      orderBy: { created_at: 'desc' },
     });
 
     return tasks.map(this.toDto);
   }
 
-  async create(userId: string, dto: CreateTaskDto): Promise<RetrieveTaskDto> {
+  async create(user_id: string, dto: CreateTaskDto): Promise<RetrieveTaskDto> {
     const task = await this.prisma.task.create({
       data: {
-        userId,
+        user_id,
         title: dto.title,
         description: dto.description,
-        dueDate: dto.dueDate,
+        due_date: dto.due_date,
       },
     });
 
     return this.toDto(task);
   }
 
-  async update(userId: string, id: string, dto: UpdateTaskDto): Promise<RetrieveTaskDto> {
-    await this.findOwnedOrFail(userId, id);
+  async update(
+    user_id: string,
+    id: string,
+    dto: UpdateTaskDto,
+  ): Promise<RetrieveTaskDto> {
+    await this.findOwnedOrFail(user_id, id);
 
     const task = await this.prisma.task.update({
       where: { id },
       data: {
         title: dto.title,
         description: dto.description,
-        dueDate: dto.dueDate,
+        due_date: dto.due_date,
       },
     });
 
     return this.toDto(task);
   }
 
-  async remove(userId: string, id: string): Promise<void> {
-    await this.findOwnedOrFail(userId, id);
+  async remove(user_id: string, id: string): Promise<void> {
+    await this.findOwnedOrFail(user_id, id);
     await this.prisma.task.delete({ where: { id } });
   }
 
@@ -56,18 +64,18 @@ export class TaskService {
       id: task.id as RetrieveTaskDto['id'],
       title: task.title,
       description: task.description ?? '',
-      dueDate: task.dueDate ?? new Date(0),
+      due_date: task.due_date ?? new Date(0),
     };
   }
 
-  private async findOwnedOrFail(userId: string, id: string): Promise<Task> {
+  private async findOwnedOrFail(user_id: string, id: string): Promise<Task> {
     const task = await this.prisma.task.findUnique({ where: { id } });
 
     if (!task) {
       throw new NotFoundException(`Task ${id} not found`);
     }
 
-    if (task.userId !== userId) {
+    if (task.user_id !== user_id) {
       throw new ForbiddenException('Access denied');
     }
 
