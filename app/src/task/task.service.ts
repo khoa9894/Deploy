@@ -8,10 +8,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { RetrieveTaskDto } from './dto/retrieve-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { QueueService } from '../queue/queue.service';
 
 @Injectable()
 export class TaskService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly queue: QueueService,
+  ) {}
 
   async findAll(user_id: string): Promise<RetrieveTaskDto[]> {
     const tasks = await this.prisma.task.findMany({
@@ -30,6 +34,12 @@ export class TaskService {
         description: dto.description,
         due_date: dto.due_date,
       },
+    });
+
+    await this.queue.sendEmail({
+      to: 'vlqvinh444@gmail.com',
+      subject: `New task created: ${task.title}`,
+      message: `A new task has been created: ${task.title}`,
     });
 
     return this.toDto(task);
