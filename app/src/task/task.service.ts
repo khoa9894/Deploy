@@ -36,13 +36,11 @@ export class TaskService {
       },
     });
 
-    const job = await this.queue.sendEmail({
+    await this.queue.sendEmail({
       to: 'vlqvinh444@gmail.com',
       subject: `New task created: ${task.title}`,
       message: `A new task has been created: ${task.title}`,
     });
-
-    console.log('\nEmail job added with ID:', job.id);
 
     return this.toDto(task);
   }
