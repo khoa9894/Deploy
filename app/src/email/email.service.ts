@@ -1,14 +1,14 @@
 import { MailerService } from '@nestjs-modules/mailer';
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { AppLogger } from '../common/logger';
 
 @Injectable()
 export class EmailService {
-  private readonly logger = new Logger(EmailService.name);
+  private readonly logger = new AppLogger(EmailService.name);
 
   constructor(private readonly mailerService: MailerService) {}
 
   async sendEmail(data: { to: string; subject: string; message: string }) {
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(data.to)) {
       throw new BadRequestException(`Invalid email address: ${data.to}`);
@@ -21,12 +21,14 @@ export class EmailService {
         text: data.message,
       });
 
-      this.logger.log(`Email sent successfully to ${data.to}`);
+      this.logger.log('Email sent', {
+        to: data.to,
+        subject: data.subject,
+      });
     } catch (error) {
-      this.logger.error(
-        `Failed to send email to ${data.to}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error('Failed to send email', error, {
+        to: data.to,
+      });
       throw new BadRequestException(`Failed to send email: ${error.message}`);
     }
   }
@@ -50,12 +52,14 @@ export class EmailService {
         context: data.context,
       });
 
-      this.logger.log(`Email (template) sent successfully to ${data.to}`);
+      this.logger.log('Templated email sent', {
+        to: data.to,
+        template: data.template,
+      });
     } catch (error) {
-      this.logger.error(
-        `Failed to send email to ${data.to}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error('Failed to send templated email', error, {
+        to: data.to,
+      });
       throw new BadRequestException(`Failed to send email: ${error.message}`);
     }
   }

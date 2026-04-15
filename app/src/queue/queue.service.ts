@@ -1,11 +1,12 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES } from './queue.constants';
 import { InjectQueue } from '@nestjs/bullmq';
+import { AppLogger } from '../common/logger';
 
 @Injectable()
 export class QueueService implements OnModuleInit {
-  private readonly logger = new Logger(QueueService.name);
+  private readonly logger = new AppLogger(QueueService.name);
 
   constructor(
     @InjectQueue(QUEUE_NAMES.EMAIL) private emailQueue: Queue,
@@ -14,7 +15,6 @@ export class QueueService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Schedule the task expiration check job at 9 AM daily
     await this.scheduleTaskExpirationCheck();
   }
 
@@ -27,31 +27,33 @@ export class QueueService implements OnModuleInit {
   }
 
   async scheduleTaskExpirationCheck() {
-    // Remove existing recurring job if any
-    const existingJobs = await this.taskExpirationQueue.getJobSchedulers();
-    for (const job of existingJobs) {
-      if (job.name === 'check-expiring-tasks') {
-        if (job.id) {
-          await this.taskExpirationQueue.removeJobScheduler(job.id);
-          this.logger.log('Removed existing task expiration check job');
-        }
+    try {
+      const existingJobs = await this.taskExpirationQueue.getJobSchedulers();
+      const existingJob = existingJobs.find(
+        (job) => job.name === 'check-expiring-tasks',
+      );
+
+      if (existingJob?.id) {
+        await this.taskExpirationQueue.removeJobScheduler(existingJob.id);
+        this.logger.log('Removed previous scheduler');
       }
-    }
 
-    // Add recurring job every 1 minute (*/1 * * * *)
-    const job = await this.taskExpirationQueue.add(
-      'check-expiring-tasks',
-      {},
-      {
-        repeat: {
-          pattern: '*/1 * * * *', // Every 1 minute
+      const job = await this.taskExpirationQueue.add(
+        'check-expiring-tasks',
+        {},
+        {
+          repeat: { pattern: '*/1 * * * *' },
+          removeOnComplete: true,
         },
-        removeOnComplete: true,
-      },
-    );
+      );
 
-    this.logger.log(
-      `Task expiration check scheduled every 1 minute with job ID: ${job.id}`,
-    );
+      this.logger.log('Task expiration check scheduled', {
+        jobId: job.id,
+        frequency: 'every 1 minute',
+      });
+    } catch (error) {
+      this.logger.error('Failed to schedule task expiration check', error);
+      throw error;
+    }
   }
 }
