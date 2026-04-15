@@ -5,10 +5,12 @@ import { TaskExpirationConsumer } from './task-expiration.consumer';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUE_NAMES } from './queue.constants';
 import { PrismaModule } from '../prisma/prisma.module';
+import { EmailModule } from 'src/email/email.module';
 
 @Module({
   imports: [
     PrismaModule,
+    EmailModule,
     BullModule.registerQueue(
       {
         name: QUEUE_NAMES.EMAIL,

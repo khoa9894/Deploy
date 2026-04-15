@@ -3,7 +3,7 @@ import { QUEUE_NAMES } from './queue.constants';
 import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { Logger } from '@nestjs/common';
-import { QueueService } from './queue.service';
+import { EmailService } from '../email/email.service';
 
 @Processor(QUEUE_NAMES.TASK_EXPIRATION)
 export class TaskExpirationConsumer extends WorkerHost {
@@ -11,7 +11,7 @@ export class TaskExpirationConsumer extends WorkerHost {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly queue: QueueService,
+    private readonly emailService: EmailService,
   ) {
     super();
   }
@@ -37,7 +37,7 @@ export class TaskExpirationConsumer extends WorkerHost {
           },
         },
         include: {
-          user: true, // Include user info if needed
+          user: true,
         },
       });
 
@@ -45,22 +45,41 @@ export class TaskExpirationConsumer extends WorkerHost {
         `Found ${expiringTasks.length} tasks expiring within 3 days`,
       );
 
-      if (expiringTasks.length > 0) {
-        this.logger.debug(`Expiring tasks:`, expiringTasks);
-        expiringTasks.forEach(async (task) => {
-          this.logger.log(
-            `Task "${task.title}" expires on ${task.due_date?.toLocaleDateString()}`,
-          );
+      if (expiringTasks.length === 0) {
+        return { processed: 0 };
+      }
 
-          await this.queue.sendEmail({
+      // Send emails in parallel using Promise.allSettled
+      const emailResults = await Promise.allSettled(
+        expiringTasks.map((task) =>
+          this.emailService.sendEmail({
             to: task.user.email,
             subject: `Task Expiration: ${task.title}`,
             message: `The task "${task.title}" is due to expire on ${task.due_date?.toLocaleDateString()}.`,
-          });
-        });
-      }
+          }),
+        ),
+      );
 
-      return { processed: expiringTasks.length };
+      // Count successes and failures
+      const succeeded = emailResults.filter(
+        (r) => r.status === 'fulfilled',
+      ).length;
+      const failed = emailResults.filter((r) => r.status === 'rejected').length;
+
+      // Log failed emails
+      emailResults.forEach((result, idx) => {
+        if (result.status === 'rejected') {
+          this.logger.warn(
+            `Failed to send email for task "${expiringTasks[idx].title}": ${result.reason}`,
+          );
+        }
+      });
+
+      this.logger.log(
+        `Task expiration check completed: ${succeeded} notifications sent, ${failed} failed`,
+      );
+
+      return { processed: succeeded, failed };
     } catch (error) {
       this.logger.error(
         `Error processing task expiration check: ${error.message}`,
