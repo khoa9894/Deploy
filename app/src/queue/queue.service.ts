@@ -1,12 +1,13 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES } from './queue.constants';
 import { InjectQueue } from '@nestjs/bullmq';
-import { AppLogger } from '../common/logger';
+import { SendEmailDto } from '../email/dto/send-email.dto';
+import { EmailJobDto } from './dto/queue.dto';
 
 @Injectable()
 export class QueueService implements OnModuleInit {
-  private readonly logger = new AppLogger(QueueService.name);
+  private readonly logger = new Logger(QueueService.name);
 
   constructor(
     @InjectQueue(QUEUE_NAMES.EMAIL) private emailQueue: Queue,
@@ -18,8 +19,14 @@ export class QueueService implements OnModuleInit {
     await this.scheduleTaskExpirationCheck();
   }
 
-  async sendEmail(data: { to: string; subject: string; message: string }) {
-    return await this.emailQueue.add('send-email', data, {
+  async sendEmail(data: SendEmailDto): Promise<any> {
+    const emailJobData: EmailJobDto = {
+      to: data.to,
+      subject: data.subject,
+      message: data.message,
+    };
+
+    return await this.emailQueue.add('send-email', emailJobData, {
       attempts: 3,
       delay: 3000,
       removeOnComplete: 3,
@@ -57,3 +64,4 @@ export class QueueService implements OnModuleInit {
     }
   }
 }
+

@@ -3,11 +3,13 @@ import { QUEUE_NAMES } from './queue.constants';
 import { Job } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { AppLogger } from '../common/logger';
+import { TaskExpirationCheckResultDto } from './dto/queue.dto';
+import { SendEmailDto } from '../email/dto/send-email.dto';
+import { Logger } from '@nestjs/common';
 
 @Processor(QUEUE_NAMES.TASK_EXPIRATION)
 export class TaskExpirationConsumer extends WorkerHost {
-  private readonly logger = new AppLogger(TaskExpirationConsumer.name);
+  private readonly logger = new Logger(TaskExpirationConsumer.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -16,7 +18,7 @@ export class TaskExpirationConsumer extends WorkerHost {
     super();
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
+  async process(job: Job): Promise<TaskExpirationCheckResultDto> {
     try {
       this.logger.debug('Starting check', { jobId: job.id });
 
@@ -37,17 +39,17 @@ export class TaskExpirationConsumer extends WorkerHost {
       this.logger.log('Found expiring tasks', { count: expiringTasks.length });
 
       if (expiringTasks.length === 0) {
-        return { processed: 0 };
+        return { sent: 0, failed: 0, total: 0 };
       }
 
+      const emailRequests: SendEmailDto[] = expiringTasks.map((task) => ({
+        to: task.user.email,
+        subject: `Task Expiration: ${task.title}`,
+        message: `The task "${task.title}" is due to expire on ${task.due_date?.toLocaleDateString()}.`,
+      }));
+
       const emailResults = await Promise.allSettled(
-        expiringTasks.map((task) =>
-          this.emailService.sendEmail({
-            to: task.user.email,
-            subject: `Task Expiration: ${task.title}`,
-            message: `The task "${task.title}" is due to expire on ${task.due_date?.toLocaleDateString()}.`,
-          }),
-        ),
+        emailRequests.map((email) => this.emailService.sendEmail(email)),
       );
 
       const succeeded = emailResults.filter(
@@ -64,16 +66,19 @@ export class TaskExpirationConsumer extends WorkerHost {
         }
       });
 
-      this.logger.log('Check completed', {
+      const result: TaskExpirationCheckResultDto = {
         sent: succeeded,
         failed,
         total: expiringTasks.length,
-      });
+      };
 
-      return { processed: succeeded, failed };
+      this.logger.log('Check completed', result);
+
+      return result;
     } catch (error) {
       this.logger.error('Check failed', error, { jobId: job.id });
       throw error;
     }
   }
 }
+

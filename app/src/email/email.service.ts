@@ -1,14 +1,14 @@
 import { MailerService } from '@nestjs-modules/mailer';
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { AppLogger } from '../common/logger';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { SendEmailDto, SendEmailWithTemplateDto } from './dto/send-email.dto';
 
 @Injectable()
 export class EmailService {
-  private readonly logger = new AppLogger(EmailService.name);
+  private readonly logger = new Logger(EmailService.name);
 
   constructor(private readonly mailerService: MailerService) {}
 
-  async sendEmail(data: { to: string; subject: string; message: string }) {
+  async sendEmail(data: SendEmailDto): Promise<void> {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(data.to)) {
       throw new BadRequestException(`Invalid email address: ${data.to}`);
@@ -33,12 +33,9 @@ export class EmailService {
     }
   }
 
-  async sendEmailWithTemplate(data: {
-    to: string;
-    subject: string;
-    template: string;
-    context: Record<string, any>;
-  }) {
+  async sendEmailWithTemplate(
+    data: SendEmailWithTemplateDto,
+  ): Promise<void> {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(data.to)) {
       throw new BadRequestException(`Invalid email address: ${data.to}`);
@@ -64,3 +61,4 @@ export class EmailService {
     }
   }
 }
+
