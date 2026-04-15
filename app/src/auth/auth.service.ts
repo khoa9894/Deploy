@@ -55,10 +55,6 @@ export class AuthService {
       where: { email: dto.email },
     });
 
-    console.log('Login attempt for email:', user);
-
-    console.log('Dto email:', dto);
-
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
