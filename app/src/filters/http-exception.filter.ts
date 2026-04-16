@@ -24,6 +24,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         typeof message === 'string'
           ? message
           : (message as any).message || 'Internal Server Error',
+      custom: 'This is a custom error response',
     };
 
     response.status(status).json(errorResponse);
