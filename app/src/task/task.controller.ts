@@ -29,7 +29,7 @@ import { TaskService } from './task.service';
 @ApiBearerAuth()
 @ApiTags('tasks')
 @UseGuards(JwtAuthGuard)
-@Controller('tasks')
+@Controller({ version: '1', path: 'tasks' })
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}
 
