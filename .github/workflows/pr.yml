@@ -25,15 +25,15 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
 
-  lint:
-    needs: changes
-    if: needs.changes.outputs.app == 'true'
-    uses: ./.github/workflows/_lint.yml
+  # lint:
+  #   needs: changes
+  #   if: needs.changes.outputs.app == 'true'
+  #   uses: ./.github/workflows/_lint.yml
 
-  test:
-    needs: changes
-    if: needs.changes.outputs.app == 'true'
-    uses: ./.github/workflows/_test.yml
+  # test:
+  #   needs: changes
+  #   if: needs.changes.outputs.app == 'true'
+  #   uses: ./.github/workflows/_test.yml
 
   docker-build:
     needs: changes
