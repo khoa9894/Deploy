@@ -23,11 +23,12 @@ A production-ready **to-do / task management** REST API that serves as a learnin
 5. [Local Setup](#local-setup)
 6. [Database Setup (Prisma)](#database-setup-prisma)
 7. [Running the App](#running-the-app)
-8. [API Reference](#api-reference)
-9. [Background Jobs (BullMQ)](#background-jobs-bullmq)
-10. [CI/CD with GitHub Actions](#cicd-with-github-actions)
-11. [Deploying to Azure](#deploying-to-azure)
-12. [Project Structure](#project-structure)
+8. [API Versioning](#api-versioning)
+9. [API Reference](#api-reference)
+10. [Background Jobs (BullMQ)](#background-jobs-bullmq)
+11. [CI/CD with GitHub Actions](#cicd-with-github-actions)
+12. [Deploying to Azure](#deploying-to-azure)
+13. [Project Structure](#project-structure)
 
 ---
 
@@ -42,7 +43,8 @@ A production-ready **to-do / task management** REST API that serves as a learnin
 | Email | Nodemailer via `@nestjs-modules/mailer`, sent through a BullMQ job queue |
 | Queues | BullMQ workers: email delivery + cron-based task-expiration checker |
 | Database | Prisma with PostgreSQL adapter (`@prisma/adapter-pg`), `OnModuleInit` connection |
-| Docs | Swagger UI at `/api-docs`, decorated with `@ApiTags`, `@ApiResponse`, etc. |
+| Versioning | URI-based API versioning (`/v1/...`), `VERSION_NEUTRAL` for utility routes |
+| Docs | Swagger UI at `/api-docs`, reflects versioned paths automatically |
 | Docker | Multi-stage Dockerfile (dev → build → production), non-root user |
 | CI/CD | GitHub Actions: PR checks (lint + test + Docker build), push-to-main deploy |
 | Cloud | Azure Container Registry + Container Apps, OIDC keyless auth |
@@ -241,26 +243,107 @@ curl http://localhost:3000/health
 
 ---
 
+## API Versioning
+
+This app uses **URI versioning** — the version is embedded in the URL path (`/v1/`, `/v2/`, …). It is configured globally in [main.ts](app/src/main.ts):
+
+```ts
+app.enableVersioning({
+  type: VersioningType.URI,
+  defaultVersion: '1',
+});
+```
+
+`defaultVersion: '1'` means any controller that does **not** declare a version explicitly is still served under `/v1/`. This is a safe fallback but explicit versions are preferred for clarity.
+
+### How versions are declared
+
+**On a whole controller** — all routes in the controller share the same version:
+
+```ts
+// app/src/task/task.controller.ts
+@Controller({ version: '1', path: 'tasks' })
+export class TaskController { ... }
+// → GET /v1/tasks, POST /v1/tasks, etc.
+```
+
+**On a single route method** — useful when one endpoint gets upgraded while the rest stay on v1:
+
+```ts
+@Controller({ version: '1', path: 'tasks' })
+export class TaskController {
+  @Get()
+  findAllV1() { ... }           // GET /v1/tasks
+
+  @Get()
+  @Version('2')
+  findAllV2() { ... }           // GET /v2/tasks
+}
+```
+
+**Version-neutral** — the route is reachable without any version prefix, regardless of the default:
+
+```ts
+// app/src/app.controller.ts
+@Controller({ version: VERSION_NEUTRAL })
+export class AppController {
+  @Get('health')
+  getHealth() { ... }           // GET /health  (not /v1/health)
+}
+```
+
+### Adding a v2 endpoint
+
+Create a new controller (or add a method) and set `version: '2'`. Both versions are served simultaneously — no breaking change to existing clients.
+
+```ts
+// app/src/task/task.controller.v2.ts
+@Controller({ version: '2', path: 'tasks' })
+export class TaskControllerV2 {
+  // new or changed behaviour
+}
+```
+
+Register it in `task.module.ts` alongside the existing controller:
+
+```ts
+controllers: [TaskController, TaskControllerV2]
+```
+
+### Swagger
+
+`SwaggerModule.createDocument` is called **after** `app.enableVersioning`, so the Swagger UI at `/api-docs` automatically reflects all versioned paths.
+
+---
+
 ## API Reference
 
-All `/tasks` endpoints require a `Bearer <token>` header.
+The API uses **URI versioning**. All versioned endpoints are prefixed with `/v1/`. The `/health` endpoint is version-neutral and has no prefix.
+
+All `/v1/tasks` endpoints require a `Bearer <token>` header.
+
+### Utility (version-neutral)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check — no version prefix |
 
 ### Auth
 
 | Method | Path | Body | Description |
 |---|---|---|---|
-| `POST` | `/auth/register` | `{ name, email, password }` | Create account, returns JWT |
-| `POST` | `/auth/login` | `{ email, password }` | Sign in, returns JWT |
-| `GET` | `/auth/profile` | — | Returns current user info |
+| `POST` | `/v1/auth/register` | `{ name, email, password }` | Create account, returns JWT |
+| `POST` | `/v1/auth/login` | `{ email, password }` | Sign in, returns JWT |
+| `GET` | `/v1/auth/profile` | — | Returns current user info |
 
 ### Tasks
 
 | Method | Path | Body | Description |
 |---|---|---|---|
-| `GET` | `/tasks` | — | List all tasks for the authenticated user |
-| `POST` | `/tasks` | `{ title, description, due_date }` | Create a task |
-| `PATCH` | `/tasks/:id` | `{ title?, description?, due_date? }` | Update a task |
-| `DELETE` | `/tasks/:id` | — | Delete a task (204 No Content) |
+| `GET` | `/v1/tasks` | — | List all tasks for the authenticated user |
+| `POST` | `/v1/tasks` | `{ title, description, due_date }` | Create a task |
+| `PATCH` | `/v1/tasks/:id` | `{ title?, description?, due_date? }` | Update a task |
+| `DELETE` | `/v1/tasks/:id` | — | Delete a task (204 No Content) |
 
 ### Error response shape (all endpoints)
 
