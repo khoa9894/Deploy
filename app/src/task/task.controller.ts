@@ -27,7 +27,7 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskService } from './task.service';
 
 @ApiBearerAuth()
-@ApiTags('tasks')
+@ApiTags('Tasks')
 @UseGuards(JwtAuthGuard)
 @Controller({ version: '1', path: 'tasks' })
 export class TaskController {

@@ -1,8 +1,9 @@
 import { Controller, Post, Body } from '@nestjs/common';
 import { EmailService } from './email.service';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiExcludeController } from '@nestjs/swagger';
 import { SendEmailDto, SendEmailWithTemplateDto } from './dto/send-email.dto';
 
+@ApiExcludeController()
 @ApiTags('email')
 @Controller('email')
 export class EmailController {
