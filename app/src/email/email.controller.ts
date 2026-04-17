@@ -7,7 +7,7 @@ import { SendEmailDto, SendEmailWithTemplateDto } from './dto/send-email.dto';
 @ApiTags('email')
 @Controller('email')
 export class EmailController {
-  constructor(private readonly emailService: EmailService) {}
+  constructor(private readonly emailService: EmailService) { }
 
   @Post('send')
   @ApiOperation({ summary: 'Send a test email' })
