@@ -6,10 +6,9 @@ FROM node:24-alpine AS development
 
 WORKDIR /usr/src/app
 
-# Copy package files first for better layer caching
 COPY package*.json ./
 
-RUN npm install --legacy-peer-deps
+RUN NODE_OPTIONS="--max-old-space-size=512" npm install --legacy-peer-deps
 
 # Copy source code
 COPY . .
@@ -27,7 +26,7 @@ FROM node:24-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps
+RUN NODE_OPTIONS="--max-old-space-size=512" npm install --legacy-peer-deps
 
 COPY . .
 
