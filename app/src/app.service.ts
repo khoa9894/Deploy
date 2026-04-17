@@ -7,6 +7,6 @@ export class AppService {
     }
 
     getTest(): string {
-        return 'This is a test endpoint';
+        return 'This is a test endpoint version 2';
     }
 }
