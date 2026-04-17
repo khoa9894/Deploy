@@ -6,7 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  Patch,
+  Put,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -31,7 +31,7 @@ import { TaskService } from './task.service';
 @UseGuards(JwtAuthGuard)
 @Controller({ version: '1', path: 'tasks' })
 export class TaskController {
-  constructor(private readonly taskService: TaskService) {}
+  constructor(private readonly taskService: TaskService) { }
 
   @Get()
   @ApiOperation({ summary: 'List all tasks for the current user' })
@@ -58,7 +58,7 @@ export class TaskController {
     return this.taskService.create(user.id, dto);
   }
 
-  @Patch(':id')
+  @Put(':id')
   @ApiOperation({ summary: 'Update an existing task' })
   @ApiParam({ name: 'id', description: 'Task UUID', format: 'uuid' })
   @ApiResponse({
