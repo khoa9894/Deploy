@@ -1,9 +1,9 @@
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "app/Dockerfile"
+builder = "NIXPACKS"
+buildCommand = "cd app && npm install --legacy-peer-deps && npm run build"
 
 [deploy]
-startCommand = "node dist/src/main"
+startCommand = "cd app && node dist/src/main"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
